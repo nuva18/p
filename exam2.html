@@ -1,0 +1,536 @@
+<h1>CS361: Exam 2</h1>
+<h2>Concurrency and Threads</h2>
+<p>threads</p>
+<ul>
+<li>single thread == single stack</li>
+<li>each thread has its own stack</li>
+<li>why threads?
+<ul>
+<li>parallelism</li>
+<li>not blocking due to slow I/O</li>
+</ul>
+</li>
+<li>threads share address space</li>
+<li>multiple processes is good for seperate tasks</li>
+<li>order in which threads run is non-deterministic, much like how order
+processes run is non-deterministic</li>
+<li>race condition: when the results of a program depend on the timing in which
+code is executed</li>
+<li>critical section: piece of code that accesses a shared variable
+<ul>
+<li>cannot be executed by more than one thread concurrently</li>
+</ul>
+</li>
+<li>mutual exclusion: mutex</li>
+<li>atomic: all or nothing; the code either runs all at once or doesn't run at
+all</li>
+<li>synchronization primitives: hardware support + OS allow us to handle
+shared data atomically</li>
+</ul>
+<h2>Thread API</h2>
+<p>you already know, but here's the basics:</p>
+<ul>
+<li>creating</li>
+<li>joining</li>
+<li>mutex
+<ul>
+<li>lock</li>
+<li>unlock</li>
+</ul>
+</li>
+<li>cond
+<ul>
+<li>wait</li>
+<li>signal</li>
+</ul>
+</li>
+</ul>
+<h2>Locks</h2>
+<p>basic idea</p>
+<ul>
+<li>variable</li>
+<li>either unlocked or locked</li>
+<li>could also store like a queue for lock acquisition, or whoever has the lock</li>
+<li>lock()
+<ul>
+<li>if the lock isn't locked, we lock it and return</li>
+<li>otherwise, we wait for it to be unlocked</li>
+</ul>
+</li>
+</ul>
+<p>evaluating locks</p>
+<ul>
+<li>does it work?</li>
+<li>is it fair?</li>
+<li>does it hinder performance?</li>
+</ul>
+<p>lock implementations</p>
+<ul>
+<li>disabling interrupts
+<ul>
+<li>simple, perhaps too simple</li>
+</ul>
+</li>
+<li>a simple flag int
+<ul>
+<li>doesn't work, two threads can set it at once</li>
+<li>spinning the CPU also isn't a great way to wait</li>
+</ul>
+</li>
+<li>test-and-set
+<ul>
+<li>set a value to something, returning its old value</li>
+<li>this allows us to make a spin lock that works pretty well
+<ul>
+<li>when we lock, we keep testing the result of the test-and-set, and if it
+returns that the lock is currently locked, we keep trying</li>
+<li>when we unlock, we just set the lock to zero. then, one of the threads
+will get to call the atomic test-and-set, and then they get the lock</li>
+<li>overall: very correct, not vey fair, performance sucks but whatevz</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>compare-and-swap
+<ul>
+<li>takes three values: a pointer, the expected val of the ptr, and the new
+val</li>
+<li>if expected val == ptr, set ptr to new, otherwise don't</li>
+<li>return original</li>
+<li>you can write a spin-lock here too: spin while C&amp;S returns 1 on the lock</li>
+</ul>
+</li>
+<li>load-linked instrucitons
+<ul>
+<li>LL: return a ptr</li>
+<li>StoreConditional: if there's been no update to a ptr since last LL then
+we update, otherwise don't</li>
+<li>lock: spin until LL returns 0, and then keep trying to grab the lock</li>
+</ul>
+</li>
+<li>fetch-and-add instruction
+<ul>
+<li>add 1 to a ptr, and return the old val</li>
+<li>enables a <em>ticket lock</em>
+<ul>
+<li>fetch-and-add on ticket value</li>
+<li>globally shared lock-&gt;turn dictates whose turn it is</li>
+<li>unlock increments turn by 1</li>
+<li>upside: ensures progress for all threads</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>yielding
+<ul>
+<li>spinning is bad, so have an instruction that voluntarily gives up the CPU
+if you're currently spinning</li>
+<li>while we spin, we call this yield function</li>
+<li>less than ideal with a large no. threads waiting for one lock: context
+switching is expensive</li>
+</ul>
+</li>
+<li>queue
+<ul>
+<li>when we go for the lock, if it's not available we add ourselves to a
+queue and then sleep</li>
+<li>when we call unlock, we wake up the next thread in the queue</li>
+<li>doesn't entirely replace spinning, but it's mostly eliminated</li>
+<li>unlock doesn't bother actually unlocking if there's smth in queue, we
+just pass the locked lock to it</li>
+<li>solaris had park(), linux has a futex</li>
+</ul>
+</li>
+<li>two-phase locks
+<ul>
+<li>two spin phases</li>
+<li>go for lock in first phase</li>
+<li>if we don't get it, sleep until it's available</li>
+</ul>
+</li>
+</ul>
+<h2>Locked Data Structures</h2>
+<p>simple counter</p>
+<ul>
+<li>lock</li>
+<li>access (+ - ==)</li>
+<li>unlock</li>
+</ul>
+<p>perfect scaling</p>
+<ul>
+<li>ideal: we want threads to run faster than a single-threaded program</li>
+</ul>
+<p>approximate counter</p>
+<ul>
+<li>one local var / thread</li>
+<li>one global variable</li>
+<li>update local var, which is uncontested</li>
+<li>sometimes we increment global var by our var, and then reset out var</li>
+</ul>
+<p>concurrent linked lists</p>
+<ul>
+<li>hand-over-hand locking
+<ul>
+<li>instead of a single lock for the list, have a per node lock</li>
+<li>downside: hard to make it faster than a single global lock</li>
+</ul>
+</li>
+</ul>
+<p>concurrent queues</p>
+<ul>
+<li>you can keep two locks, one for the head and one for the tail</li>
+<li>in this way, you can push and pop at the same time</li>
+</ul>
+<p>concurrent hash tables</p>
+<ul>
+<li>same bullshit as lists basically, because you can just use lists to
+implement same-addressing</li>
+</ul>
+<h2>Condition Variables</h2>
+<p>you could have a shared variable that a thread just spins on until it's a
+certain value</p>
+<ul>
+<li>wildly inefficient</li>
+</ul>
+<p>signal api</p>
+<ul>
+<li>wait (sleep until we get signaled)</li>
+<li>signal (wake up a thread waiting on the cond)</li>
+<li>broadcast (wake up ALL sleeping threads)</li>
+</ul>
+<p>producer / consumer</p>
+<ul>
+<li>producer puts data into a buffer</li>
+<li>consumer takes data from buffer and processes it</li>
+<li>need a lock for the buffer, but also conditions to signal the consumers
+when there's something to be consumed, and the producers when the buffer
+is empty</li>
+</ul>
+<h2>Semaphores</h2>
+<p>mutexes and condition vars in one!</p>
+<p>definition</p>
+<ul>
+<li>obj with int that you modify with two routines</li>
+</ul>
+<p>api</p>
+<ul>
+<li>wait: decrement s by 1, wait if s is negative</li>
+<li>post: incrememnt s by 1, wake a thread if any are sleeping</li>
+</ul>
+<h2>Event-based Concurrency</h2>
+<p>event loop</p>
+<ul>
+<li>wait for event to occur</li>
+<li>check the kind of event</li>
+<li>do the thing</li>
+<li>loop infinitely gets a list of events, and processes all of them</li>
+<li>code processing events is called the <em>event handler</em></li>
+<li>events are received using the system call select()</li>
+</ul>
+<p>overall simpler, cuz no locks needed!!</p>
+<p>problem: blocking system calls</p>
+<ul>
+<li>no blocking calls allowed, cuz otherwise everything breaks down</li>
+<li>async i/o: returns control to the caller immediately before i/o is done</li>
+<li>you can then check later if the call has completed</li>
+</ul>
+<p>also problem: state mgmt</p>
+<ul>
+<li>we do some read, and when its done we want to write it somewhere else</li>
+<li>problem: no blocking</li>
+<li>solution: we put where it's going in a data structure, and then retrieve it
+when its done</li>
+</ul>
+<p>other problems</p>
+<ul>
+<li>you can have multiple event handlers, which has all the same BS as
+multithreaded programs, because that's what they are</li>
+<li>unavoidiable blocks, such as page faults, hurt performance in a way we can't
+really counter</li>
+<li>event-based code can be hard to upkeep</li>
+<li>async disk i/o isn't as simple as you want it to be</li>
+</ul>
+<h2>I/O Devices</h2>
+<p>heiarchy</p>
+<ul>
+<li>memory bus</li>
+<li>i/o bus</li>
+<li>peripheral bus</li>
+</ul>
+<p>faster buses need to be shorter b/c electrons can only go so fast</p>
+<p>hardware needs an interface such that the software can control it</p>
+<p>internal structure: needed for a devices abstraction to the system</p>
+<p>canonical protocol:</p>
+<ul>
+<li>status register: current status of device</li>
+<li>command register: tells device to perform a certain task</li>
+<li>data register: read / write data to / from device</li>
+<li>process is as follows
+<ul>
+<li>wait for device to not be busy
+<ul>
+<li>&quot;polling&quot; the device</li>
+</ul>
+</li>
+<li>write some data</li>
+<li>perform some command</li>
+<li>wait until device is done with request</li>
+</ul>
+</li>
+</ul>
+<p>interrupts:</p>
+<ul>
+<li>why poll forever when we could just sleep until the OS tells us we're
+ready to go?</li>
+<li>OS does the following
+<ul>
+<li>process result from device</li>
+<li>wake up calling process</li>
+</ul>
+</li>
+<li>not always faster: if the device is fast enough that we don't need to poll
+in the first place then interrupts will make things slower</li>
+<li>hybrid approach: poll for a bit, then interrupt</li>
+</ul>
+<p>DMA:</p>
+<ul>
+<li>specific device that handles transfers between devices and memory w/o CPU
+intervention</li>
+<li>now i/o is handled by not the CPU, so the CPU can do other, more important
+shit</li>
+</ul>
+<p>communicating with devices</p>
+<ul>
+<li>solution 1: specific instructions, which are usually privileged</li>
+<li>solution 2: memory-mapped i/o, where hardware makes device registers
+available like it's a chunk of memory</li>
+</ul>
+<p>making specific devices work in a generalized OS</p>
+<ul>
+<li>abstraction, bitch</li>
+<li>devices have drivers, so basically they do the heavy lifting to make your
+life easier</li>
+</ul>
+<h2>Hard Disk Drives</h2>
+<p>interface</p>
+<ul>
+<li>large no sectors</li>
+<li>read / write</li>
+<li>array of sectors -- address space</li>
+<li>512-byte writes are atomic, larger writes are possible but no guarintees</li>
+</ul>
+<p>the drive</p>
+<ul>
+<li>platter: slab of metal made magnetic</li>
+<li>each platter has two surfaces</li>
+<li>platters are bound by a spindle, which is connected to a motor to spin
+the platter</li>
+<li>data is encoded in circles of sectors on the platter called tracks</li>
+<li>we change the magnetic charge in the sectors to write data to them</li>
+<li>disk head writes / reads data</li>
+<li>connected to a disk arm which moves around</li>
+</ul>
+<p>nitty gritty</p>
+<ul>
+<li>rotational delay: time it takes for a sector to rotate around to the read
+head</li>
+<li>seek time: time it takes for the head to navigate to the desired track</li>
+</ul>
+<p>important to disney</p>
+<ul>
+<li>T_i/o = T_seek + T_rotation + T_transfer</li>
+<li>R_i/o = Size_transfer / T_i/o</li>
+</ul>
+<p>disk scheduling</p>
+<ul>
+<li>SSTF: shortest seek time first</li>
+<li>Elevator (SCAN / C-SCAN)
+<ul>
+<li>we perform sweeps on the disk</li>
+<li>if an action is queued on a sector we've already sweeped in this turn, it
+has to wait until the next</li>
+<li>C-SCAN only sweeps in one direction, SCAN sweeps in both</li>
+</ul>
+</li>
+<li>SPTF: shortest positioning time first</li>
+</ul>
+<p>other sched issues</p>
+<ul>
+<li>where do we handle disk scheduling?</li>
+<li>merging i/o calls to concurrent blocks (sect. 33 &amp; 34 == 2 sector read)</li>
+<li>how long do we wait before writing to disk?</li>
+</ul>
+<h2>RAID</h2>
+<p>evaluation:</p>
+<ul>
+<li>capacity (how much can we still store?)</li>
+<li>reliability (how many disk faults can we handle?)</li>
+<li>performance (uhhhhh)</li>
+</ul>
+<p>three designs covered here:</p>
+<ul>
+<li>RAID 0 (striping)
+<ul>
+<li>we spread the data across the disks in a round robin fashion, ie put a
+block on disk 0, 1, 2, ..., n-1, n</li>
+<li>we can up the chunk size, and that just means we write multiple blocks
+to a disk before jumping to the next one</li>
+<li>no actual RAID going on here: so capacity is perfect, reliability is shit,
+performance depends on your metric</li>
+</ul>
+</li>
+<li>RAID 1 (mirroring)
+<ul>
+<li>copy each block to another disk</li>
+<li>you can throw in striping if you want</li>
+<li>capacity: halved, reliability: pretty good, performance: slower on writes
+b/c you write to multiple disks</li>
+</ul>
+</li>
+<li>RAID 4/5 (parity-based redundancy)
+<ul>
+<li>xor blocks together into a parity block</li>
+<li>when a drive fails, xor the other drives into the parity drive to get it
+back</li>
+<li>capacity is better than raid1, reliability is a bit worse, but still okay,
+performance is a bit worse</li>
+<li>raid5: parity blocks are spread across all drives, instead of being all
+on one drive; handles bottlenecking</li>
+</ul>
+</li>
+</ul>
+<h2>Basics of Galois Fields</h2>
+<p>add / sub is just xor</p>
+<p>multiply is normal long mult, except we're using bits, and we xor instead of
+adding</p>
+<ul>
+<li>we reduce with the irreducable polynomial if the result is too big</li>
+<li>IP is an n+1 byte no, where n is the no of bytes in the space</li>
+<li>to reduce, we shift our IP of choice over to the first digit of the number
+and xor</li>
+</ul>
+<h2>Files and Directories</h2>
+<p>files: linear array of bytes you can r/w</p>
+<p>directories: list of pairs of file names to their internal inode numbers</p>
+<p>file descriptors are managed on a per-process basis</p>
+<ul>
+<li>you can share fd's in some cases</li>
+</ul>
+<p>sys call fsync() -- write to disk immediately</p>
+<p>you can't write to directories directly b/c they're considered part of the file
+sys</p>
+<p>cmd mkfs -- make file system</p>
+<p>key terms, according to the book:</p>
+<ul>
+<li>directory: collection of tuples with a human-readable name and a lowl-level
+name. each entry refers to a file / directory</li>
+<li>directory tree / heirarchy: organizes all files / dirs into a large tree
+starting w/ root</li>
+<li>file descriptor: for accessing files</li>
+<li>fd's refer to an entry in the open file table</li>
+<li>multiple names for the same file? hard links / soft links</li>
+<li>sharing? permissions bits and access control lists</li>
+</ul>
+<h2>Very Simple File System</h2>
+<p>basic machinery needed:</p>
+<ul>
+<li>metadata for each file, usually stored in inode</li>
+<li>directories are just special files that sotre name / inode mappings</li>
+<li>bitmaps / other structures are used to keep track of which inodes / data
+blocks are free / allocated</li>
+</ul>
+<h2>Fast File System</h2>
+<p>at the time, the old way was too slow</p>
+<ul>
+<li>disk was treated like random-access</li>
+<li>we need to be more aware of the disk</li>
+</ul>
+<p>div disk into cylinder groups</p>
+<ul>
+<li>cylinders are sets of tracks that are the same dist from the center of the
+drive</li>
+<li>drive organized into block groups</li>
+<li>ultimate point: two files in the same block / cyl group will have fast seq
+read times</li>
+</ul>
+<p>the groups</p>
+<ul>
+<li>super block: used to mount file sys</li>
+<li>inode bitmap &amp; data bitmap to track whether inodes / data blocks are
+allocated</li>
+<li>inodes and data blocks: duh</li>
+</ul>
+<p>allocating mantra: related stuff is close together, unrelated stuff is far
+apart</p>
+<ul>
+<li>files in the same dir get put close to each other; in diff dir, it goes
+far away</li>
+</ul>
+<p>internal fragmentation is a problem</p>
+<ul>
+<li>sub-blocks were the solution; 512-byte blocks that the file system could
+allocate to files</li>
+<li>if it gets big enough to warrant a full block, it'll get it</li>
+<li>we usually buffer before reaching 4k to skip the sub-block process</li>
+</ul>
+<h2>FSCK and Journaling</h2>
+<p>problem: crash consistency</p>
+<ul>
+<li>older solution: file system checker
+<ul>
+<li>too slow</li>
+</ul>
+</li>
+<li>current solution: journaling
+<ul>
+<li>faster</li>
+<li>many forms; most common is metadata journaling</li>
+</ul>
+</li>
+</ul>
+<h2>Log-structured File System</h2>
+<p>instead of overwriting files in place, we always write to unused portions of
+the disk, and then reclaim what we're not using through cleaning</p>
+<ul>
+<li>&quot;shadow paging&quot;</li>
+<li>enables highly efficient writing</li>
+<li>faster
+<ul>
+<li>hard drives: ensure positioning time is min</li>
+<li>parity based RAIDs: avoid small write prob</li>
+<li>large I/Os are needed for efficient flash SSDs</li>
+</ul>
+</li>
+<li>downside: lotta garbage
+<ul>
+<li>so you gotta clean it up!</li>
+</ul>
+</li>
+</ul>
+<h2>Flash-based SSD</h2>
+<p>terms:</p>
+<ul>
+<li>flash chip: many banks, organized into erase blocks, organized into pages</li>
+<li>blocks are large (128K - 2M)</li>
+<li>pages are small (1K - 8K)</li>
+<li>to read: issue cmd with address and length: read 1+ pages</li>
+<li>to write: erase the block, then program each page</li>
+<li>trim tells device when a range of blocks isn't needed anymore</li>
+<li>wear out: a block erased and programmed too often becomes unusuable</li>
+<li>flash SSD behaves like a normal block-based r/w disk using a flash
+translation layer
+<ul>
+<li>convert reads and writes into this format</li>
+</ul>
+</li>
+<li>most of these are log-structured: in-mem translation layer tracks where
+logical writes were located in physical medium</li>
+<li>cost of garbage collection -&gt; write amplification</li>
+<li>mapping table can be huge: hybrid mapping / caching can fix</li>
+<li>wear leveling: we want the entire disk to wear evenly</li>
+</ul>
+<h2>Data Integrity and Protection</h2>
+<p>checksums, yo</p>
+<ul>
+<li>diff checksums protect against diff faults</li>
+</ul>
